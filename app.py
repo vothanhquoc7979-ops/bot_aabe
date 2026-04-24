@@ -216,9 +216,8 @@ def to_vietnam_time(dt: datetime):
     return dt.astimezone(VIETNAM_TZ)
 
 # ================= CONFIG =================
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is missing!")
+# BOT_TOKEN: try env first, DB fallback after init_db()
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 ADMIN_IDS = [int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
@@ -478,6 +477,27 @@ def init_db():
         logger.info("Database initialized")
 
 init_db()
+
+# Load BOT_TOKEN and ADMIN_IDS from DB if not set via environment
+def _load_bot_config_from_db():
+    """Nạp BOT_TOKEN và ADMIN_IDS từ DB nếu chưa có trong env"""
+    global BOT_TOKEN, ADMIN_IDS
+    _db_token = get_config("bot_token", "")
+    if not BOT_TOKEN and _db_token:
+        BOT_TOKEN = _db_token
+        logger.info("✅ Loaded BOT_TOKEN from database config")
+    _db_admin_ids = get_config("admin_ids_list", "")
+    if _db_admin_ids:
+        for _id_str in _db_admin_ids.split(","):
+            _id_str = _id_str.strip()
+            if _id_str.isdigit():
+                _aid = int(_id_str)
+                if _aid not in ADMIN_IDS:
+                    ADMIN_IDS.append(_aid)
+        if _db_admin_ids:
+            logger.info(f"✅ Loaded ADMIN_IDS from database config: {ADMIN_IDS}")
+
+_load_bot_config_from_db()
 
 # ================= AUTH FUNCTIONS =================
 def generate_session_token():
@@ -1689,8 +1709,20 @@ async def order_timeout_loop():
             await asyncio.sleep(60)
 
 # ================= TELEGRAM BOT =================
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
 dp = Dispatcher()
+
+async def reinit_bot(new_token: str):
+    """Tái khởi động bot với token mới"""
+    global bot, BOT_TOKEN
+    try:
+        if bot:
+            await bot.session.close()
+    except Exception:
+        pass
+    BOT_TOKEN = new_token
+    bot = Bot(token=BOT_TOKEN)
+    logger.info("✅ Bot reinitialized with new token")
 
 # Webhook mode settings
 WEBHOOK_PATH = f"/webhook/telegram/{BOT_TOKEN}"
@@ -3112,6 +3144,74 @@ async def api_get_settings(request: Request, auth: bool = Depends(require_admin)
         "admin_ids": get_config("admin_ids", ""),
         "admin_password_set": bool(get_config("admin_password", "") or ADMIN_PASSWORD != "admin123")
     }
+
+# ================= BOT CONFIG API =================
+class BotConfigRequest(BaseModel):
+    bot_token: str = ""
+    admin_ids: str = ""
+
+@app.get("/api/admin/config/bot")
+async def api_get_bot_config(request: Request, auth: bool = Depends(require_admin)):
+    """Lấy cấu hình bot (BOT_TOKEN ẩn một phần, ADMIN_IDS)"""
+    token = get_config("bot_token", "") or os.getenv("BOT_TOKEN", "")
+    masked = ""
+    if token:
+        masked = token[:8] + "..." + token[-4:] if len(token) > 12 else "***"
+    admin_ids_db = get_config("admin_ids_list", "")
+    admin_ids_env = os.getenv("ADMIN_IDS", "")
+    return {
+        "bot_token_set": bool(token),
+        "bot_token_masked": masked,
+        "bot_token_source": "database" if get_config("bot_token", "") else ("env" if os.getenv("BOT_TOKEN") else "none"),
+        "admin_ids": admin_ids_db or admin_ids_env,
+        "current_admin_ids": ADMIN_IDS,
+    }
+
+@app.post("/api/admin/config/bot")
+async def api_save_bot_config(data: BotConfigRequest, request: Request, auth: bool = Depends(require_admin)):
+    """Lưu BOT_TOKEN và ADMIN_IDS vào DB, tái khởi động bot nếu token thay đổi"""
+    global ADMIN_IDS, BOT_TOKEN
+    try:
+        token_changed = False
+
+        # Lưu BOT_TOKEN nếu có
+        if data.bot_token and data.bot_token.strip():
+            new_token = data.bot_token.strip()
+            old_token = get_config("bot_token", "") or os.getenv("BOT_TOKEN", "")
+            if new_token != old_token:
+                token_changed = True
+            set_config("bot_token", new_token)
+            logger.info("✅ BOT_TOKEN saved to database config")
+
+        # Lưu ADMIN_IDS nếu có
+        if data.admin_ids and data.admin_ids.strip():
+            clean_ids = data.admin_ids.strip()
+            set_config("admin_ids_list", clean_ids)
+            # Cập nhật runtime
+            new_ids = []
+            for _id_str in clean_ids.split(","):
+                _id_str = _id_str.strip()
+                if _id_str.isdigit():
+                    new_ids.append(int(_id_str))
+            if new_ids:
+                ADMIN_IDS[:] = new_ids
+            logger.info(f"✅ ADMIN_IDS updated: {ADMIN_IDS}")
+
+        # Tái khởi động bot nếu token thay đổi
+        if token_changed:
+            new_token = data.bot_token.strip()
+            BOT_TOKEN = new_token
+            await reinit_bot(new_token)
+            return {
+                "success": True,
+                "message": "✅ Đã lưu! Bot token mới đã được áp dụng. Vui lòng restart service để đảm bảo hoạt động ổn định.",
+                "restart_recommended": True
+            }
+
+        return {"success": True, "message": "✅ Cấu hình đã được lưu thành công!"}
+    except Exception as e:
+        logger.error(f"Save bot config error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/admin/stats")
 async def api_stats(request: Request, auth: bool = Depends(require_admin)):

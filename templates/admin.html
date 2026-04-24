@@ -727,6 +727,60 @@
                 </div>
 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Bot Config -->
+                    <div class="bg-white rounded-2xl shadow-lg p-6 lg:col-span-2">
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">
+                            <i class="fas fa-robot mr-2 text-indigo-500"></i>Cấu hình Bot Telegram
+                        </h3>
+                        <p class="text-sm text-gray-500 mb-6">Nhập BOT_TOKEN và Admin IDs để bot hoạt động. Dữ liệu lưu vào database, không cần biến môi trường.</p>
+
+                        <!-- Status banner -->
+                        <div id="botTokenStatus" class="hidden mb-4 p-3 rounded-xl text-sm"></div>
+
+                        <div class="space-y-5">
+                            <!-- BOT_TOKEN -->
+                            <div>
+                                <label class="block text-gray-600 mb-2 font-medium">
+                                    <i class="fas fa-key mr-1 text-yellow-500"></i>BOT_TOKEN
+                                    <span id="botTokenCurrentBadge" class="ml-2 hidden text-xs font-normal px-2 py-0.5 bg-green-100 text-green-700 rounded-full"></span>
+                                </label>
+                                <div class="relative">
+                                    <input type="password" id="botTokenInput"
+                                        placeholder="Nhập token từ @BotFather (dạng 123456:ABC-...)"
+                                        class="w-full px-4 py-3 pr-12 border rounded-xl focus:ring-2 focus:ring-primary font-mono text-sm">
+                                    <button type="button" onclick="toggleBotTokenVisibility()"
+                                        class="absolute right-3 top-3 text-gray-400 hover:text-gray-600 transition">
+                                        <i id="botTokenEye" class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-400 mt-1">Để trống nếu không muốn thay đổi token hiện tại.</p>
+                            </div>
+
+                            <!-- ADMIN_IDS -->
+                            <div>
+                                <label class="block text-gray-600 mb-2 font-medium">
+                                    <i class="fas fa-shield-alt mr-1 text-blue-500"></i>Admin IDs (Telegram User ID)
+                                </label>
+                                <input type="text" id="botAdminIdsInput"
+                                    placeholder="VD: 123456789, 987654321"
+                                    class="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary">
+                                <p class="text-xs text-gray-400 mt-1">Phân cách bằng dấu phẩy. Lấy ID từ @userinfobot trên Telegram.</p>
+                            </div>
+
+                            <!-- Source indicator -->
+                            <div id="botConfigSourceInfo" class="hidden text-xs text-gray-500 bg-gray-50 rounded-lg p-3 space-y-1">
+                                <p><i class="fas fa-info-circle mr-1"></i>Token nguồn: <span id="tokenSource" class="font-semibold"></span></p>
+                                <p>Token hiện tại: <span id="tokenMasked" class="font-mono font-semibold text-indigo-600"></span></p>
+                                <p>Admin IDs đang chạy: <span id="currentAdminIds" class="font-semibold text-green-600"></span></p>
+                            </div>
+
+                            <button onclick="saveBotConfig()" id="saveBotConfigBtn"
+                                class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-3 rounded-xl hover:opacity-90 transition flex items-center justify-center gap-2 font-semibold">
+                                <i class="fas fa-save"></i>Lưu cấu hình Bot
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Settings -->
                     <div class="bg-white rounded-2xl shadow-lg p-6">
                         <h3 class="text-xl font-bold text-gray-800 mb-6">
@@ -952,6 +1006,7 @@
             loadBotUsers();
             loadBroadcastCount();
             loadSettings();
+            loadBotConfig();
             
             // Set webhook URL
             const baseUrl = window.location.origin;
@@ -995,6 +1050,9 @@
             
             document.querySelectorAll('.sidebar-item').forEach(item => item.classList.remove('active'));
             document.querySelector(`[href="#${sectionId}"]`).classList.add('active');
+
+            // Load data per section
+            if (sectionId === 'settings') loadBotConfig();
         }
 
         // Modal Functions
@@ -1922,6 +1980,89 @@
             showToast('Đang tải database...');
             window.location.href = '/api/admin/backup';
         }
+
+        // Bot Config
+        async function loadBotConfig() {
+            const data = await apiCall('/config/bot');
+            if (!data) return;
+
+            const statusDiv = document.getElementById('botTokenStatus');
+            const badge = document.getElementById('botTokenCurrentBadge');
+            const sourceInfo = document.getElementById('botConfigSourceInfo');
+
+            if (data.bot_token_set) {
+                statusDiv.className = 'mb-4 p-3 rounded-xl text-sm bg-green-50 text-green-700 border border-green-200';
+                statusDiv.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Bot TOKEN đã được cấu hình và đang hoạt động.';
+                statusDiv.classList.remove('hidden');
+                badge.textContent = '✓ Đã cấu hình';
+                badge.classList.remove('hidden');
+            } else {
+                statusDiv.className = 'mb-4 p-3 rounded-xl text-sm bg-red-50 text-red-700 border border-red-200';
+                statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i><b>Chưa có BOT_TOKEN!</b> Bot chưa hoạt động. Vui lòng nhập token bên dưới.';
+                statusDiv.classList.remove('hidden');
+            }
+
+            // Source info
+            document.getElementById('tokenSource').textContent = data.bot_token_source || 'none';
+            document.getElementById('tokenMasked').textContent = data.bot_token_masked || '(chưa đặt)';
+            document.getElementById('currentAdminIds').textContent = (data.current_admin_ids || []).join(', ') || '(chưa đặt)';
+            sourceInfo.classList.remove('hidden');
+
+            // Pre-fill admin IDs
+            if (data.admin_ids) {
+                document.getElementById('botAdminIdsInput').value = data.admin_ids;
+            }
+        }
+
+        async function saveBotConfig() {
+            const token = document.getElementById('botTokenInput').value.trim();
+            const adminIds = document.getElementById('botAdminIdsInput').value.trim();
+
+            if (!token && !adminIds) {
+                showToast('Vui lòng nhập BOT_TOKEN hoặc Admin IDs!', true);
+                return;
+            }
+
+            const btn = document.getElementById('saveBotConfigBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Đang lưu...';
+
+            const result = await apiCall('/config/bot', 'POST', { bot_token: token, admin_ids: adminIds });
+
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-save mr-2"></i>Lưu cấu hình Bot';
+
+            if (result && result.success) {
+                showToast(result.message || '✅ Đã lưu cấu hình bot!');
+                document.getElementById('botTokenInput').value = '';
+                await loadBotConfig(); // Refresh status
+
+                if (result.restart_recommended) {
+                    setTimeout(() => {
+                        const banner = document.getElementById('botTokenStatus');
+                        banner.className = 'mb-4 p-3 rounded-xl text-sm bg-yellow-50 text-yellow-800 border border-yellow-200';
+                        banner.innerHTML = '<i class="fas fa-sync-alt mr-2"></i><b>Khuyên:</b> Restart service trên Railway để bot hoạt động ổn định với token mới.';
+                        banner.classList.remove('hidden');
+                    }, 500);
+                }
+            } else {
+                showToast(result?.detail || result?.message || 'Lỗi lưu cấu hình!', true);
+            }
+        }
+
+        function toggleBotTokenVisibility() {
+            const input = document.getElementById('botTokenInput');
+            const eye = document.getElementById('botTokenEye');
+            if (input.type === 'password') {
+                input.type = 'text';
+                eye.className = 'fas fa-eye-slash';
+            } else {
+                input.type = 'password';
+                eye.className = 'fas fa-eye';
+            }
+        }
+
+
 
         function downloadSettings() {
             showToast('Đang tải settings...');
