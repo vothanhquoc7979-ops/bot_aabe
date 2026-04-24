@@ -3654,49 +3654,70 @@ async def telegram_webhook(request: Request):
 # ================= STARTUP =================
 @app.on_event("startup")
 async def on_startup():
-    global auto_check_active, auto_check_task, order_timeout_task
-    
+    global auto_check_active, auto_check_task, order_timeout_task, bot
+
     logger.info("Starting bot...")
-    
-    # Chọn mode: Webhook hoặc Polling
-    if USE_WEBHOOK and WEBAPP_HOST:
-        # Webhook mode (Production)
-        webhook_url = f"https://{WEBAPP_HOST}{WEBHOOK_PATH}"
-        await bot.set_webhook(webhook_url)
-        logger.info(f"Webhook set: {webhook_url}")
+
+    if not BOT_TOKEN:
+        logger.warning("⚠️  BOT_TOKEN chưa được cấu hình!")
+        logger.warning("   → Vào /admin → Cài đặt → Nhập BOT_TOKEN để kích hoạt bot.")
+        logger.info("   Web server và Admin Panel vẫn hoạt động bình thường.")
     else:
-        # Polling mode (Development)
-        # Xóa webhook cũ nếu có
-        await bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Deleted old webhook, starting polling...")
-        
-        # Start polling với error handling
-        async def safe_polling():
-            while True:
-                try:
-                    await dp.start_polling(bot, drop_pending_updates=True)
-                except Exception as e:
-                    logger.error(f"Polling error: {e}")
-                    await asyncio.sleep(5)
-        
-        asyncio.create_task(safe_polling())
-    
-    # Bật auto check
+        # Khởi tạo bot nếu chưa có
+        if bot is None:
+            bot = Bot(token=BOT_TOKEN)
+
+        # Chọn mode: Webhook hoặc Polling
+        if USE_WEBHOOK and WEBAPP_HOST:
+            # Webhook mode (Production)
+            webhook_url = f"https://{WEBAPP_HOST}{WEBHOOK_PATH}"
+            try:
+                await bot.set_webhook(webhook_url)
+                logger.info(f"Webhook set: {webhook_url}")
+            except Exception as e:
+                logger.error(f"Failed to set webhook: {e}")
+        else:
+            # Polling mode (Development)
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+                logger.info("Deleted old webhook, starting polling...")
+            except Exception as e:
+                logger.warning(f"Could not delete webhook: {e}")
+
+            # Start polling với error handling
+            async def safe_polling():
+                while True:
+                    try:
+                        if bot:
+                            await dp.start_polling(bot, drop_pending_updates=True)
+                    except Exception as e:
+                        logger.error(f"Polling error: {e}")
+                        await asyncio.sleep(5)
+
+            asyncio.create_task(safe_polling())
+
+    # Bật auto check (hoạt động kể cả khi chưa có bot token)
     auto_check_active = True
     auto_check_task = asyncio.create_task(auto_check_loop())
-    
+
     # Bật task hủy đơn hết hạn
     order_timeout_task = asyncio.create_task(order_timeout_loop())
-    
-    logger.info("Bot started! Auto check: ON")
+
+    logger.info(f"Server started! Auto check: ON | Bot: {'✅ Active' if BOT_TOKEN else '⚠️  No token'}")
 
 @app.on_event("shutdown")
 async def on_shutdown():
     global auto_check_active
     auto_check_active = False
-    
-    if USE_WEBHOOK:
-        await bot.delete_webhook()
-    
-    await bot.session.close()
+
+    if bot:
+        try:
+            if USE_WEBHOOK:
+                await bot.delete_webhook()
+        except Exception:
+            pass
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
 
