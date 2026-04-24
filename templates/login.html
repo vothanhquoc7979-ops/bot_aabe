@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Đăng nhập - Admin Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+        <div class="text-center mb-8">
+            <div class="w-20 h-20 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fas fa-robot text-white text-3xl"></i>
+            </div>
+            <h1 class="text-2xl font-bold text-gray-800">Admin Panel</h1>
+            <p class="text-gray-500">Đăng nhập để quản lý shop</p>
+        </div>
+
+        <form id="loginForm" onsubmit="handleLogin(event)">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-gray-600 mb-2">Tên đăng nhập</label>
+                    <div class="relative">
+                        <span class="absolute left-4 top-3 text-gray-400"><i class="fas fa-user"></i></span>
+                        <input 
+                            type="text" 
+                            id="username" 
+                            required
+                            placeholder="admin"
+                            class="w-full pl-12 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                        >
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-gray-600 mb-2">Mật khẩu</label>
+                    <div class="relative">
+                        <span class="absolute left-4 top-3 text-gray-400"><i class="fas fa-lock"></i></span>
+                        <input 
+                            type="password" 
+                            id="password" 
+                            required
+                            placeholder="••••••••"
+                            class="w-full pl-12 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                        >
+                    </div>
+                </div>
+
+                <div id="errorMessage" class="hidden bg-red-50 text-red-600 p-3 rounded-xl text-sm">
+                    <i class="fas fa-exclamation-circle mr-2"></i>
+                    <span></span>
+                </div>
+
+                <button 
+                    type="submit" 
+                    id="loginBtn"
+                    class="w-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white py-3 rounded-xl hover:opacity-90 transition font-semibold flex items-center justify-center gap-2"
+                >
+                    <i class="fas fa-sign-in-alt"></i>
+                    Đăng nhập
+                </button>
+            </div>
+        </form>
+
+        <div class="mt-6 text-center text-sm text-gray-500">
+            <p>🔒 Bảo mật bởi Session Authentication</p>
+        </div>
+    </div>
+
+    <script>
+        async function handleLogin(event) {
+            event.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+            const loginBtn = document.getElementById('loginBtn');
+            
+            // Disable button
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang đăng nhập...';
+            
+            try {
+                const response = await fetch('/admin/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    window.location.href = '/admin';
+                } else {
+                    errorDiv.classList.remove('hidden');
+                    errorDiv.querySelector('span').textContent = data.message || 'Đăng nhập thất bại!';
+                }
+            } catch (error) {
+                errorDiv.classList.remove('hidden');
+                errorDiv.querySelector('span').textContent = 'Lỗi kết nối server!';
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Đăng nhập';
+            }
+        }
+    </script>
+</body>
+</html>
